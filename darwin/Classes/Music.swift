@@ -882,7 +882,7 @@ public class Player : NSObject, AVAudioPlayerDelegate {
             }
             #endif
         }
-        seek(to: Int(currentPosMillis))
+        //seek(to: Int(currentPosMillis))
     }
     
     var _currentTime : Double = 0.0
