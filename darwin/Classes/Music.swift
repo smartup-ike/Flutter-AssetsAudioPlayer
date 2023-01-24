@@ -764,8 +764,12 @@ public class Player : NSObject, AVAudioPlayerDelegate {
     }
     
     func seek(to: Int){
+        self.channel.invokeMethod(Music.METHOD_IS_SEEKING, arguments: true)
         let targetTime = CMTimeMakeWithSeconds(Double(to) / 1000.0, preferredTimescale: 1)
-        self.player?.seek(to: targetTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        self.updateCurrentTime(time: targetTime)
+        self.player?.seek(to: targetTime, toleranceBefore: .zero, toleranceAfter: .zero, completionHandler: { (status) in
+            self.channel.invokeMethod(Music.METHOD_IS_SEEKING, arguments: false)
+        })
     }
     
     func setVolume(volume: Double){
@@ -978,6 +982,7 @@ class Music : NSObject, FlutterPlugin {
     static let METHOD_CURRENT = "player.current"
     static let METHOD_VOLUME = "player.volume"
     static let METHOD_IS_BUFFERING = "player.isBuffering"
+    static let METHOD_IS_SEEKING = "player.isSeeking"
     static let METHOD_PLAY_SPEED = "player.playSpeed"
     static let METHOD_NEXT = "player.next"
     static let METHOD_PREV = "player.prev"
