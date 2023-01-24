@@ -10,6 +10,7 @@ enum _PlayingBuilderType {
   current,
   loopMode,
   isBuffering,
+  isSeeking,
   realtimePlayingInfos,
   playerState,
 }
@@ -30,6 +31,8 @@ typedef CurrentWidgetBuilder = Widget Function(
     BuildContext context, Playing playing);
 typedef IsBufferingWidgetBuilder = Widget Function(
     BuildContext context, bool isBuffering);
+typedef IsSeekingWidgetBuilder = Widget Function(
+    BuildContext context, bool isSeeking);
 typedef RealtimeWidgetBuilder = Widget Function(
     BuildContext context, RealtimePlayingInfos realtimePlayingInfos);
 typedef PlayerStateBuilder = Widget Function(
@@ -50,6 +53,12 @@ class PlayerBuilder extends StatefulWidget {
       {Key? key, required this.player, required PlayingWidgetBuilder builder})
       : builder = builder,
         builderType = _PlayingBuilderType.isBuffering,
+        super(key: key);
+
+  const PlayerBuilder.isSeeking(
+      {Key? key, required this.player, required PlayingWidgetBuilder builder})
+      : builder = builder,
+        builderType = _PlayingBuilderType.isSeeking,
         super(key: key);
 
   const PlayerBuilder.loopMode(
@@ -121,6 +130,18 @@ class _PlayerBuilderState extends State<PlayerBuilder> {
       case _PlayingBuilderType.isBuffering:
         return StreamBuilder(
           stream: widget.player.isBuffering,
+          initialData: false,
+          builder: (context, snap) {
+            if (snap.hasData) {
+              return widget.builder(context, snap.data)!;
+            } else {
+              return SizedBox();
+            }
+          },
+        );
+      case _PlayingBuilderType.isSeeking:
+        return StreamBuilder(
+          stream: widget.player.isSeeking,
           initialData: false,
           builder: (context, snap) {
             if (snap.hasData) {
