@@ -58,6 +58,9 @@ class PlayerImplemTesterExoPlayer(private val type: Type) : PlayerImplemTester {
                 onBuffering = {
                     configuration.onBuffering?.invoke(it)
                 },
+                onSeeking = {
+                    configuration.onSeeking?.invoke(it)
+                },
                 onError = { t ->
                     configuration.onError?.invoke(t)
                 },
@@ -91,11 +94,13 @@ class PlayerImplemTesterExoPlayer(private val type: Type) : PlayerImplemTester {
 class PlayerImplemExoPlayer(
         onFinished: (() -> Unit),
         onBuffering: ((Boolean) -> Unit),
+        onSeeking: ((Boolean) -> Unit),
         onError: ((AssetAudioPlayerThrowable) -> Unit),
         val type: PlayerImplemTesterExoPlayer.Type
 ) : PlayerImplem(
         onFinished = onFinished,
         onBuffering = onBuffering,
+        onSeeking = onSeeking,
         onError = onError
 ) {
 
@@ -285,12 +290,14 @@ class PlayerImplemExoPlayer(
                                 pause()
                                 onFinished.invoke()
                                 onBuffering.invoke(false)
+                                onSeeking.invoke(false)
                             }
                             ExoPlayer.STATE_BUFFERING -> {
                                 onBuffering.invoke(true)
                             }
                             ExoPlayer.STATE_READY -> {
                                 onBuffering.invoke(false)
+                                onSeeking.invoke(false)
                                 if (!onThisMediaReady) {
                                     onThisMediaReady = true
                                     //retrieve duration in seconds
@@ -318,6 +325,7 @@ class PlayerImplemExoPlayer(
                 continuation.resumeWithException(error)
             } else {
                 onBuffering.invoke(false)
+                onSeeking.invoke(false)
                 onError(mapError(error))
             }
         }
@@ -328,6 +336,7 @@ class PlayerImplemExoPlayer(
     }
 
     override fun seekTo(to: Long) {
+        onSeeking.invoke(true)
         mediaPlayer?.seekTo(to)
     }
 

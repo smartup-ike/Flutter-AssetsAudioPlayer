@@ -59,6 +59,7 @@ class Player(
     var onFinished: (() -> Unit)? = null
     var onPlaying: ((Boolean) -> Unit)? = null
     var onBuffering: ((Boolean) -> Unit)? = null
+    var onSeeking: ((Boolean) -> Unit)? = null
     var onError: ((AssetAudioPlayerThrowable) -> Unit)? = null
     var onNext: (() -> Unit)? = null
     var onPrev: (() -> Unit)? = null
@@ -197,6 +198,7 @@ class Player(
                         },
                         onPlaying = onPlaying,
                         onBuffering = onBuffering,
+                        onSeeking = onSeeking,
                         onError= onError,
                         drmConfiguration = drmConfiguration
                         )

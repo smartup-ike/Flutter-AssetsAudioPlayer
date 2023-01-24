@@ -37,6 +37,9 @@ class PlayerImplemTesterMediaPlayer : PlayerImplemTester {
                 onBuffering = {
                     configuration.onBuffering?.invoke(it)
                 },
+                onSeeking = {
+                    configuration.onSeeking?.invoke(it)
+                },
                 onError = { t ->
                     configuration.onError?.invoke(mapError(t))
                 }
@@ -69,10 +72,12 @@ class PlayerImplemTesterMediaPlayer : PlayerImplemTester {
 class PlayerImplemMediaPlayer(
         onFinished: (() -> Unit),
         onBuffering: ((Boolean) -> Unit),
+        onSeeking: ((Boolean) -> Unit),
         onError: ((Throwable) -> Unit)
 ) : PlayerImplem(
         onFinished = onFinished,
         onBuffering = onBuffering,
+        onSeeking = onSeeking,
         onError = onError
 ) {
     private var mediaPlayer: MediaPlayer? = null
@@ -172,6 +177,10 @@ class PlayerImplemMediaPlayer(
                 this@PlayerImplemMediaPlayer.onFinished.invoke()
             }
 
+            mediaPlayer?.setOnSeekCompleteListener {
+                onSeeking.invoke(false)
+            }
+
             try {
                 mediaPlayer?.setOnPreparedListener {
                     //retrieve duration in seconds
@@ -198,6 +207,7 @@ class PlayerImplemMediaPlayer(
     }
 
     override fun seekTo(to: Long) {
+        onSeeking.invoke(true)
         mediaPlayer?.seekTo(to.toInt())
     }
 
