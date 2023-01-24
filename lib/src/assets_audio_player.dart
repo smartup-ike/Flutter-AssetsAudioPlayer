@@ -43,6 +43,7 @@ const String METHOD_VOLUME = 'player.volume';
 const String METHOD_FINISHED = 'player.finished';
 const String METHOD_IS_PLAYING = 'player.isPlaying';
 const String METHOD_IS_BUFFERING = 'player.isBuffering';
+const String METHOD_IS_SEEKING = 'player.isSeeking';
 const String METHOD_CURRENT = 'player.current';
 const String METHOD_FORWARD_REWIND_SPEED = 'player.forwardRewind';
 const String METHOD_NOTIFICATION_NEXT = 'player.next';
@@ -370,6 +371,10 @@ class AssetsAudioPlayer {
   final BehaviorSubject<bool> _isBuffering =
       BehaviorSubject<bool>.seeded(false);
 
+  ValueStream<bool> get isSeeking => _isSeeking.stream;
+  final BehaviorSubject<bool> _isSeeking =
+      BehaviorSubject<bool>.seeded(false);
+
   final PublishSubject<CacheDownloadInfos> _cacheDownloadInfos =
       PublishSubject<CacheDownloadInfos>();
   Stream<CacheDownloadInfos> get cacheDownloadInfos =>
@@ -512,6 +517,7 @@ class AssetsAudioPlayer {
     await _playSpeed.close();
     await _playerState.close();
     await _isBuffering.close();
+    await _isSeeking.close();
     await _forwardRewindSpeed.close();
     await _realtimePlayingInfos.close();
     await _realTimeSubscription?.cancel();
@@ -620,6 +626,9 @@ class AssetsAudioPlayer {
         case METHOD_IS_BUFFERING:
           _isBuffering.add(call.arguments);
           break;
+        case METHOD_IS_SEEKING:
+          _isSeeking.add(call.arguments);
+          break;
         case METHOD_PLAY_SPEED:
           _playSpeed.add(call.arguments);
           break;
@@ -704,7 +713,8 @@ class AssetsAudioPlayer {
       isShuffling,
       current,
       currentPosition,
-      isBuffering
+      isBuffering,
+      isSeeking
     ])
         .map((values) => RealtimePlayingInfos(
               volume: values[0],
@@ -714,6 +724,7 @@ class AssetsAudioPlayer {
               current: values[4],
               currentPosition: values[5],
               isBuffering: values[6],
+              isSeeking: values[7],
               playerId: id,
             ))
         .listen((readingInfos) {
@@ -1083,10 +1094,12 @@ class AssetsAudioPlayer {
         _stopped = false;
         _playlistFinished.add(false);
         _isBuffering.add(false);
+        _isSeeking.add(false);
       } catch (e) {
         _lastOpenedAssetsAudio = currentAudio; // revert to the previous audio
         _current.add(null);
         _isBuffering.add(false);
+        _isSeeking.add(false);
         _currentPosition.add(Duration.zero);
         try {
           await stop();
