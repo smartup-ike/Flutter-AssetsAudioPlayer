@@ -769,7 +769,7 @@ public class Player : NSObject, AVAudioPlayerDelegate {
         self.channel.invokeMethod(Music.METHOD_IS_SEEKING, arguments: true)
         let targetTime = CMTimeMakeWithSeconds(Double(to) / 1000.0, preferredTimescale: 1)
         _seekTime = Double(to);
-        self.updateCurrentTime(time: targetTime)
+        self.currentTimeMs = _seekTime!
         self.player?.seek(to: targetTime, toleranceBefore: .zero, toleranceAfter: .zero, completionHandler: { (status) in
             self._seekTime = nil;
             self.channel.invokeMethod(Music.METHOD_IS_SEEKING, arguments: false)
@@ -903,6 +903,9 @@ public class Player : NSObject, AVAudioPlayerDelegate {
             return _currentTime
         }
         set(newValue) {
+            if (_seekTime != nil && _seekTime != newValue) {
+                return
+            }
             if(_currentTime != newValue){
                 _currentTime = newValue
                 self.channel.invokeMethod(Music.METHOD_POSITION, arguments: newValue)
