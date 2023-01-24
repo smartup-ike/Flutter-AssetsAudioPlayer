@@ -762,12 +762,16 @@ public class Player : NSObject, AVAudioPlayerDelegate {
     private func setBuffering(_ value: Bool){
         self.channel.invokeMethod(Music.METHOD_IS_BUFFERING, arguments: value)
     }
+
+    var _seekTime: Double?
     
     func seek(to: Int){
         self.channel.invokeMethod(Music.METHOD_IS_SEEKING, arguments: true)
         let targetTime = CMTimeMakeWithSeconds(Double(to) / 1000.0, preferredTimescale: 1)
+        _seekTime = Double(to);
         self.updateCurrentTime(time: targetTime)
         self.player?.seek(to: targetTime, toleranceBefore: .zero, toleranceAfter: .zero, completionHandler: { (status) in
+            self._seekTime = nil;
             self.channel.invokeMethod(Music.METHOD_IS_SEEKING, arguments: false)
         })
     }
@@ -893,6 +897,9 @@ public class Player : NSObject, AVAudioPlayerDelegate {
     
     private var currentTimeMs : Double {
         get {
+            if (_seekTime != nil) {
+                return _seekTime!;
+            }
             return _currentTime
         }
         set(newValue) {
