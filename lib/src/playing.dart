@@ -132,6 +132,7 @@ class RealtimePlayingInfos {
   final bool isPlaying;
   final LoopMode loopMode;
   final bool isBuffering;
+  final bool isSeeking;
   final bool? isShuffling;
 
   RealtimePlayingInfos({
@@ -142,6 +143,7 @@ class RealtimePlayingInfos {
     required this.isPlaying,
     required this.loopMode,
     required this.isBuffering,
+    required this.isSeeking,
     this.isShuffling,
   }) : duration = current?.audio.duration ?? Duration();
 
@@ -162,7 +164,8 @@ class RealtimePlayingInfos {
           isPlaying == other.isPlaying &&
           loopMode == other.loopMode &&
           isBuffering == other.isBuffering &&
-          isShuffling == other.isShuffling;
+          isShuffling == other.isShuffling &&
+          isSeeking == other.isSeeking;
 
   @override
   int get hashCode =>
@@ -174,10 +177,11 @@ class RealtimePlayingInfos {
       isPlaying.hashCode ^
       loopMode.hashCode ^
       isBuffering.hashCode ^
-      isShuffling.hashCode;
+      isShuffling.hashCode ^
+      isSeeking.hashCode;
 
   @override
   String toString() {
-    return 'RealtimePlayingInfos{playerId: $playerId, current: $current, duration: $duration, currentPosition: $currentPosition, volume: $volume, isPlaying: $isPlaying, loopMode: $loopMode, isBuffering: $isBuffering, isShuffling: $isShuffling}';
+    return 'RealtimePlayingInfos{playerId: $playerId, current: $current, duration: $duration, currentPosition: $currentPosition, volume: $volume, isPlaying: $isPlaying, loopMode: $loopMode, isBuffering: $isBuffering, isShuffling: $isShuffling, isSeeking: $isSeeking}';
   }
 }
