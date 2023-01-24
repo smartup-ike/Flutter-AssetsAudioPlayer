@@ -31,6 +31,7 @@ internal val METHOD_PITCH = "player.pitch"
 internal val METHOD_FINISHED = "player.finished"
 internal val METHOD_IS_PLAYING = "player.isPlaying"
 internal val METHOD_IS_BUFFERING = "player.isBuffering"
+internal val METHOD_IS_SEEKING = "player.isSeeking"
 internal val METHOD_CURRENT = "player.current"
 internal val METHOD_AUDIO_SESSION_ID = "player.audioSessionId"
 internal val METHOD_NEXT = "player.next"
@@ -213,6 +214,9 @@ class AssetsAudioPlayer(
                 }
                 onBuffering = {
                     channel.invokeMethod(METHOD_IS_BUFFERING, it)
+                }
+                onSeeking = {
+                    channel.invokeMethod(METHOD_IS_SEEKING, it)
                 }
                 onFinished = {
                     channel.invokeMethod(METHOD_FINISHED, null)

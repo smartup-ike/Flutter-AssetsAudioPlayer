@@ -9,6 +9,7 @@ typealias DurationMS = Long
 abstract class PlayerImplem(
         val onFinished: (() -> Unit),
         val onBuffering: ((Boolean) -> Unit),
+        val onSeeking: ((Boolean) -> Unit),
         val onError: ((AssetAudioPlayerThrowable) -> Unit)
 ) {
     abstract var loopSingleAudio: Boolean
