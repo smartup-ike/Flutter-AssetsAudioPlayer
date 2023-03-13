@@ -127,7 +127,9 @@ public class Player : NSObject, AVAudioPlayerDelegate {
     func getUrlByType(path: String, audioType: String, assetPackage: String?) -> URL? {
         var url : URL
         
-        if(audioType == "network" || audioType == "liveStream"){
+        if (audioType == "base64" || audioType == "custom") {
+            return URL(string: path)
+        } else if(audioType == "network" || audioType == "liveStream"){
             if let u = URL(string: path) {
                 return u
             } else {
@@ -461,6 +463,240 @@ public class Player : NSObject, AVAudioPlayerDelegate {
         }
     }
     
+    // Based on CachingPlayerItem (https://github.com/neekeetab/CachingPlayerItem)
+    class BytesSlowMoPlayerItem: SlowMoPlayerItem {
+        
+        fileprivate let resourceLoaderDelegate = ResourceLoaderDelegate()
+        fileprivate let url: URL
+        fileprivate let initialScheme: String?
+        fileprivate var customFileExtension: String?
+        
+        weak var delegate: CachingPlayerItemDelegate?
+        
+        /// Is used for playing from Data.
+        init(data: Data, mimeType: String, fileExtension: String) {
+            guard let fakeUrl = URL(string: "assets_audio_player://base64.\(fileExtension)") else {
+                fatalError("internal inconsistency")
+            }
+            
+            self.url = fakeUrl
+            self.initialScheme = nil
+            
+            resourceLoaderDelegate.mediaData = data
+            resourceLoaderDelegate.mimeType = mimeType
+            
+            let asset = AVURLAsset(url: fakeUrl)
+            asset.resourceLoader.setDelegate(resourceLoaderDelegate, queue: DispatchQueue.main)
+            super.init(asset: asset, automaticallyLoadedAssetKeys: nil)
+            resourceLoaderDelegate.owner = self
+            
+            addObserver(self, forKeyPath: "status", options: NSKeyValueObservingOptions.new, context: nil)
+            
+            NotificationCenter.default.addObserver(self, selector: #selector(playbackStalledHandler), name:NSNotification.Name.AVPlayerItemPlaybackStalled, object: self)
+            
+        }
+        
+        override open func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
+            delegate?.playerItemReadyToPlay?(self)
+        }
+        
+        @objc func playbackStalledHandler() {
+            delegate?.playerItemPlaybackStalled?(self)
+        }
+        
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+            removeObserver(self, forKeyPath: "status")
+            resourceLoaderDelegate.session?.invalidateAndCancel()
+        }
+        
+        class ResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate, URLSessionDelegate, URLSessionDataDelegate, URLSessionTaskDelegate {
+            
+            var mimeType: String?
+            var session: URLSession?
+            var mediaData: Data?
+            var response: URLResponse?
+            var pendingRequests = Set<AVAssetResourceLoadingRequest>()
+            weak var owner: BytesSlowMoPlayerItem?
+            
+            func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
+                
+                pendingRequests.insert(loadingRequest)
+                processPendingRequests()
+                return true
+                
+            }
+            
+            func resourceLoader(_ resourceLoader: AVAssetResourceLoader, didCancel loadingRequest: AVAssetResourceLoadingRequest) {
+                pendingRequests.remove(loadingRequest)
+            }
+            
+            func processPendingRequests() {
+                
+                // get all fullfilled requests
+                let requestsFulfilled = Set<AVAssetResourceLoadingRequest>(pendingRequests.compactMap {
+                    self.fillInContentInformationRequest($0.contentInformationRequest)
+                    if self.haveEnoughDataToFulfillRequest($0.dataRequest!) {
+                        $0.finishLoading()
+                        return $0
+                    }
+                    return nil
+                })
+                
+                // remove fulfilled requests from pending requests
+                _ = requestsFulfilled.map { self.pendingRequests.remove($0) }
+                
+            }
+            
+            func fillInContentInformationRequest(_ contentInformationRequest: AVAssetResourceLoadingContentInformationRequest?) {
+                contentInformationRequest?.contentType = self.mimeType
+                contentInformationRequest?.contentLength = Int64(mediaData!.count)
+                contentInformationRequest?.isByteRangeAccessSupported = true
+                return
+            }
+            
+            func haveEnoughDataToFulfillRequest(_ dataRequest: AVAssetResourceLoadingDataRequest) -> Bool {
+                
+                let requestedOffset = Int(dataRequest.requestedOffset)
+                let requestedLength = dataRequest.requestedLength
+                let currentOffset = Int(dataRequest.currentOffset)
+                
+                guard let songDataUnwrapped = mediaData,
+                      songDataUnwrapped.count > currentOffset else {
+                    // Don't have any data at all for this request.
+                    return false
+                }
+                
+                let bytesToRespond = min(songDataUnwrapped.count - currentOffset, requestedLength)
+                let dataToRespond = songDataUnwrapped.subdata(in: Range(uncheckedBounds: (currentOffset, currentOffset + bytesToRespond)))
+                dataRequest.respond(with: dataToRespond)
+                
+                return songDataUnwrapped.count >= requestedLength + requestedOffset
+                
+            }
+            
+            deinit {
+                session?.invalidateAndCancel()
+            }
+            
+        }
+        
+    }
+    
+    // Based on CachingPlayerItem (https://github.com/neekeetab/CachingPlayerItem)
+    class CustomStreamSlowMoPlayerItem: SlowMoPlayerItem {
+        
+        fileprivate let resourceLoaderDelegate: ResourceLoaderDelegate
+        fileprivate let url: URL
+        fileprivate var customFileExtension: String?
+        
+        weak var delegate: CachingPlayerItemDelegate?
+        
+        /// Is used for playing from Data.
+        init(name: String, url: URL, mimeType: String, channel:FlutterMethodChannel) {
+            self.url = url
+            resourceLoaderDelegate = ResourceLoaderDelegate(channel: channel, name: name, mimeType: mimeType)
+            
+            let asset = AVURLAsset(url: url)
+            asset.resourceLoader.setDelegate(resourceLoaderDelegate, queue: DispatchQueue.main)
+            super.init(asset: asset, automaticallyLoadedAssetKeys: nil)
+            resourceLoaderDelegate.owner = self
+            
+            addObserver(self, forKeyPath: "status", options: NSKeyValueObservingOptions.new, context: nil)
+            
+            NotificationCenter.default.addObserver(self, selector: #selector(playbackStalledHandler), name:NSNotification.Name.AVPlayerItemPlaybackStalled, object: self)
+            
+        }
+        
+        override open func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
+            delegate?.playerItemReadyToPlay?(self)
+        }
+        
+        @objc func playbackStalledHandler() {
+            delegate?.playerItemPlaybackStalled?(self)
+        }
+        
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+            removeObserver(self, forKeyPath: "status")
+            resourceLoaderDelegate.session?.invalidateAndCancel()
+        }
+        
+        class ResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate, URLSessionDelegate, URLSessionDataDelegate, URLSessionTaskDelegate {
+            private let channel: FlutterMethodChannel
+            var mimeType: String?
+            var session: URLSession?
+            var mediaData: Data?
+            var response: URLResponse?
+            var size: Int = 0
+            let name: String
+            var opened: Bool = false
+            weak var owner: CustomStreamSlowMoPlayerItem?
+            
+            init(channel: FlutterMethodChannel, name: String, mimeType: String) {
+                self.channel = channel
+                self.name = name
+                self.mimeType = mimeType
+            }
+            
+            func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
+                if (!opened) {
+                    getSize(loadingRequest: loadingRequest)
+                } else {
+                    self.fillInContentInformationRequest(loadingRequest.contentInformationRequest)
+                    self.getBytes(loadingRequest)
+                }
+                return true
+                
+            }
+            
+            func getSize(loadingRequest: AVAssetResourceLoadingRequest) {
+                channel.invokeMethod("player.openCloseStream", arguments: ["current": name, "type": "open"]) {result in
+                    if (result != nil) {
+                        self.size = (result as! NSInteger)
+                        self.opened = true
+                        self.fillInContentInformationRequest(loadingRequest.contentInformationRequest)
+                        self.getBytes(loadingRequest)
+                    } else {
+                        self.channel.invokeMethod("player.error", arguments: ["type": "custom", "message": "Custom stream: The requested size were not returned correctly"])
+                    }
+                }
+            }
+            
+            func fillInContentInformationRequest(_ contentInformationRequest: AVAssetResourceLoadingContentInformationRequest?) {
+                contentInformationRequest?.contentType = self.mimeType
+                contentInformationRequest?.contentLength = Int64(self.size)
+                contentInformationRequest?.isByteRangeAccessSupported = true
+                return
+            }
+            
+            func getBytes(_ request: AVAssetResourceLoadingRequest) -> Void {
+                let dataRequest = request.dataRequest!;
+                let requestedLength = dataRequest.requestedLength
+                let currentOffset = Int(dataRequest.currentOffset)
+                
+                channel.invokeMethod("player.getBytes", arguments: ["offset": currentOffset, "length": requestedLength, "current": self.name]) {result in
+                    
+                    if (result != nil && !(result is FlutterError)) {
+                        dataRequest.respond(with: (result as! FlutterStandardTypedData).data)
+                    } else {
+                        self.channel.invokeMethod("player.error", arguments: ["type": "custom", "message": "Custom stream: The requested bytes were not returned correctly"])
+                    }
+                    
+                    request.finishLoading()
+                }
+            }
+            
+            deinit {
+                channel.invokeMethod("player.openCloseStream", arguments: ["current": name, "type": "close"])
+                session?.invalidateAndCancel()
+            }
+            
+        }
+        
+    }
+    
+    
     func onAudioUpdated(path: String, audioMetas: AudioMetas) {
         if(_playingPath == path || (_playingPath == nil && _lastOpenedPath == path)){
             #if os(iOS)
@@ -527,13 +763,19 @@ public class Player : NSObject, AVAudioPlayerDelegate {
             }
             #endif
             
-            var item : SlowMoPlayerItem
+            var item : AVPlayerItem
             if networkHeaders != nil && networkHeaders!.count > 0 {
-                let asset = AVURLAsset(url: url, options: [
-                    "AVURLAssetHTTPHeaderFieldsKey": networkHeaders!,
-                    "AVURLAssetOutOfBandMIMETypeKey": "audio/mpeg"
-                ])
-                item = SlowMoPlayerItem(asset: asset)
+                if audioType == "base64" {
+                    item = BytesSlowMoPlayerItem(data: Data(base64Encoded: networkHeaders!["base64"] as! String)!, mimeType: networkHeaders!["mimeType"] as! String, fileExtension: networkHeaders!["extension"] as! String)
+                } else if audioType == "custom" {
+                    item = CustomStreamSlowMoPlayerItem(name: assetPath, url: url, mimeType: networkHeaders!["mimeType"] as! String, channel: channel)
+                } else {
+                    let asset = AVURLAsset(url: url, options: [
+                        "AVURLAssetHTTPHeaderFieldsKey": networkHeaders!,
+                        "AVURLAssetOutOfBandMIMETypeKey": "audio/mpeg"
+                    ])
+                    item = SlowMoPlayerItem(asset: asset)
+                }
             } else {
                 item = SlowMoPlayerItem(url: url)
             }
@@ -607,7 +849,7 @@ public class Player : NSObject, AVAudioPlayerDelegate {
                     self?._playingPath = assetPath
                     //self?.setBuffering(false)
                     
-                    self?.addPostPlayingBufferListeners(item: item)
+                    self?.addPostPlayingBufferListeners(item: item as! SlowMoPlayerItem)
                     self?.addPlayerStatusListeners(item: (self?.player)!);
                     
                     result(nil)
@@ -913,7 +1155,9 @@ public class Player : NSObject, AVAudioPlayerDelegate {
                 if(self.displayMediaPlayerNotification){
                     #if os(iOS)
                     self.nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = _currentTime / 1000
-                    self.nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = self.player!.rate
+                    if self.player != nil {
+                        self.nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = self.player!.rate
+                    }
                     MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
                     #endif
                 }
@@ -1535,4 +1779,25 @@ func parseAudioFocusStrategy(_ from: NSDictionary?) -> AudioFocusStrategy {
     } else {
         return  AudioFocusStrategy.None()
     }
+}
+
+@objc protocol CachingPlayerItemDelegate {
+    
+    /// Is called when the media file is fully downloaded.
+    @objc optional func playerItem(_ playerItem: Player.SlowMoPlayerItem, didFinishDownloadingData data: Data)
+    
+    /// Is called every time a new portion of data is received.
+    @objc optional func playerItem(_ playerItem: Player.SlowMoPlayerItem, didDownloadBytesSoFar bytesDownloaded: Int, outOf bytesExpected: Int)
+    
+    /// Is called after initial prebuffering is finished, means
+    /// we are ready to play.
+    @objc optional func playerItemReadyToPlay(_ playerItem: Player.SlowMoPlayerItem)
+    
+    /// Is called when the data being downloaded did not arrive in time to
+    /// continue playback.
+    @objc optional func playerItemPlaybackStalled(_ playerItem: Player.SlowMoPlayerItem)
+    
+    /// Is called on downloading error.
+    @objc optional func playerItem(_ playerItem: Player.SlowMoPlayerItem, downloadingFailedWith error: Error)
+    
 }

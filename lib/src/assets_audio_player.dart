@@ -52,6 +52,8 @@ const String METHOD_NOTIFICATION_STOP = 'player.stop';
 const String METHOD_NOTIFICATION_PLAY_OR_PAUSE = 'player.playOrPause';
 const String METHOD_PLAY_SPEED = 'player.playSpeed';
 const String METHOD_PITCH = 'player.pitch';
+const String METHOD_GET_BYTES = 'player.getBytes';
+const String METHOD_OPEN_CLOSE = 'player.openCloseStream';
 const String METHOD_ERROR = 'player.error';
 const String METHOD_AUDIO_SESSION_ID = 'player.audioSessionId';
 
@@ -188,6 +190,7 @@ class AssetsAudioPlayer {
 
   /// Stores opened asset audio path to use it on the `_current` BehaviorSubject (in `PlayingAudio`)
   Audio? _lastOpenedAssetsAudio;
+  AudioStream? _lastStream;
 
   _CurrentPlaylist? _playlist;
 
@@ -372,8 +375,7 @@ class AssetsAudioPlayer {
       BehaviorSubject<bool>.seeded(false);
 
   ValueStream<bool> get isSeeking => _isSeeking.stream;
-  final BehaviorSubject<bool> _isSeeking =
-      BehaviorSubject<bool>.seeded(false);
+  final BehaviorSubject<bool> _isSeeking = BehaviorSubject<bool>.seeded(false);
 
   final PublishSubject<CacheDownloadInfos> _cacheDownloadInfos =
       PublishSubject<CacheDownloadInfos>();
@@ -639,6 +641,37 @@ class AssetsAudioPlayer {
           final double newValue = call.arguments;
           if (_forwardRewindSpeed.value != newValue) {
             _forwardRewindSpeed.add(newValue);
+          }
+          break;
+        case METHOD_GET_BYTES:
+          String? current = call.arguments['current'];
+          var list = _playlist?.playlist.audios
+              .where((element) => element.path == current);
+          var currentAudio = (list?.isNotEmpty ?? false) ? list?.first : null;
+          if (currentAudio != null && currentAudio is AudioStream) {
+            int? offset = call.arguments['offset'];
+            int? length = call.arguments['length'];
+            return await currentAudio.request(offset, length);
+          }
+          break;
+        case METHOD_OPEN_CLOSE:
+          String? current = call.arguments['current'];
+          OpenCloseType? type =
+              OpenCloseType.values.byName(call.arguments['type'] ?? 'close');
+          var list = _playlist?.playlist.audios
+              .where((element) => element.path == current);
+          var currentAudio = (list?.isNotEmpty ?? false) ? list?.first : null;
+          if (currentAudio != null && currentAudio is AudioStream) {
+            switch (type) {
+              case OpenCloseType.open:
+                return await currentAudio.fileSize;
+              case OpenCloseType.close:
+              // TODO: Evaluate the need for this. Currently the item is closed when a new item is loaded instead.
+              // This seems to be triggered on seek as well and most of the time you want to use this method to clear up memory,
+              // but not if the data still needs to be accessed.
+                // currentAudio.close();
+                break;
+            }
           }
           break;
         default:
@@ -1026,6 +1059,10 @@ class AssetsAudioPlayer {
     final _audioFocusStrategy = audioFocusStrategy ?? defaultFocusStrategy;
     final currentAudio = _lastOpenedAssetsAudio;
     final _headPhoneStrategy = headPhoneStrategy ?? _DEFAULT_HEADPHONE_STRATEGY;
+    _lastStream?.close();
+    if (_lastOpenedAssetsAudio is AudioStream) {
+      _lastStream = _lastOpenedAssetsAudio as AudioStream;
+    }
     if (audioInput != null) {
       _respectSilentMode = respectSilentMode ?? _DEFAULT_RESPECT_SILENT_MODE;
       _showNotification = showNotification ?? _DEFAULT_SHOW_NOTIFICATION;
@@ -1050,10 +1087,8 @@ class AssetsAudioPlayer {
               audio.playSpeed ??
               this.playSpeed.valueOrNull ??
               defaultPlaySpeed,
-          'pitch': pitch ??
-              audio.pitch ??
-              this.pitch.valueOrNull ??
-              defaultPitch,
+          'pitch':
+              pitch ?? audio.pitch ?? this.pitch.valueOrNull ?? defaultPitch,
         };
         if (seek != null) {
           params['seek'] = seek.inMilliseconds.round();
@@ -1063,19 +1098,20 @@ class AssetsAudioPlayer {
         }
         if (audio.audioType == AudioType.file ||
             audio.audioType == AudioType.network ||
-            audio.audioType == AudioType.liveStream) {
+            audio.audioType == AudioType.liveStream ||
+            audio.audioType == AudioType.custom ||
+            audio.audioType == AudioType.base64) {
           params['networkHeaders'] =
               audio.networkHeaders ?? networkSettings.defaultHeaders;
         }
 
-        if(audio.drmConfiguration != null){
-          var drmMap  ={};
+        if (audio.drmConfiguration != null) {
+          var drmMap = {};
           drmMap['drmType'] = audio.drmConfiguration!.drmType.toString();
-          if(audio.drmConfiguration!.drmType==DrmType.clearKey){
+          if (audio.drmConfiguration!.drmType == DrmType.clearKey) {
             drmMap['clearKey'] = audio.drmConfiguration!.clearKey;
           }
           params['drmConfiguration'] = drmMap;
-
         }
 
         //region notifs
@@ -1096,6 +1132,11 @@ class AssetsAudioPlayer {
         _isBuffering.add(false);
         _isSeeking.add(false);
       } catch (e) {
+        if (e is PlatformException && e.message == 'Job was cancelled') {
+          // Ignore canceled jobs when one item is not loaded before the next one is opened
+          print('Ignore job cancelation');
+          return;
+        }
         _lastOpenedAssetsAudio = currentAudio; // revert to the previous audio
         _current.add(null);
         _isBuffering.add(false);
@@ -1107,7 +1148,11 @@ class AssetsAudioPlayer {
           print(t);
         }
         print(e);
-        return Future.error(e);
+        if (e is AssetsAudioPlayerCustomError && onErrorDo != null) {
+          onErrorDo!(ErrorHandler(error: e, player: this));
+        } else {
+          return Future.error(e);
+        }
       }
     }
   }
@@ -1434,6 +1479,7 @@ class AssetsAudioPlayer {
   /// if null, set to defaultPlaySpeed (1.0)
   ///
   Future<void> setPlaySpeed(double playSpeed) async {
+    _playlist?.playSpeed = playSpeed;
     await _sendChannel.invokeMethod('playSpeed', {
       'id': id,
       'playSpeed': playSpeed.clamp(minPlaySpeed, maxPlaySpeed),
@@ -1507,7 +1553,7 @@ class _CurrentPlaylist {
   final bool? respectSilentMode;
   final bool? showNotification;
   LoopMode? loopMode;
-  final double? playSpeed;
+  double? playSpeed;
   final double? pitch;
   final NotificationSettings? notificationSettings;
   final AudioFocusStrategy? audioFocusStrategy;
@@ -1634,4 +1680,9 @@ class _CurrentPlaylist {
       playlistIndex = 0;
     }
   }
+}
+
+enum OpenCloseType {
+  open,
+  close;
 }

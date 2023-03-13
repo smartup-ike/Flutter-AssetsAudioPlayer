@@ -10,7 +10,9 @@ abstract class PlayerImplem(
         val onFinished: (() -> Unit),
         val onBuffering: ((Boolean) -> Unit),
         val onSeeking: ((Boolean) -> Unit),
-        val onError: ((AssetAudioPlayerThrowable) -> Unit)
+        val onError: ((AssetAudioPlayerThrowable) -> Unit),
+        val onGetBytes: ((offset: Int, length: Int, currentItem: String, onDone: (data: ByteArray) -> Unit) -> Unit),
+        val onOpenClose: ((currentItem: String, type: String, onDone: ((size: Long) -> Unit)?) -> Unit)
 ) {
     abstract var loopSingleAudio: Boolean
     abstract val isPlaying: Boolean

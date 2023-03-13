@@ -19,6 +19,8 @@ class PlayerFinderConfiguration(
         val onFinished: (() -> Unit)?,
         val onPlaying: ((Boolean) -> Unit)?,
         val onBuffering: ((Boolean) -> Unit)?,
+        val onGetBytes: ((offset: Int, length: Int, currentItem: String, onDone: (data: ByteArray) -> Unit) -> Unit)?,
+        val onOpenClose: ((currentItem: String, type: String, onDone: ((size: Long) -> Unit)?) -> Unit)?,
         val onSeeking: ((Boolean) -> Unit)?,
         val onError: ((AssetAudioPlayerThrowable) -> Unit)?,
         val drmConfiguration: Map<*,*>?

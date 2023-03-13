@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:assets_audio_player/assets_audio_player.dart';
 import 'package:flutter_neumorphic/flutter_neumorphic.dart';
 
+import 'base64_string.dart';
+import 'custom_audio_stream.dart';
 import 'player/PlayingControls.dart';
 import 'player/PositionSeekWidget.dart';
 import 'player/SongsSelector.dart';
@@ -31,8 +33,8 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   //final AssetsAudioPlayer _assetsAudioPlayer = AssetsAudioPlayer();
   late AssetsAudioPlayer _assetsAudioPlayer;
-  final List<StreamSubscription> _subscriptions = []; 
-  final audios = <Audio>[
+  final List<StreamSubscription> _subscriptions = [];
+  List<Audio> audios = <Audio>[
     //Audio.network(
     //  'https://d14nt81hc5bide.cloudfront.net/U7ZRzzHfk8pvmW28sziKKPzK',
     //  metas: Metas(
@@ -54,6 +56,18 @@ class _MyAppState extends State<MyApp> {
         // image: MetasImage.network('https://www.google.com')
         image: MetasImage.network(
             'https://image.shutterstock.com/image-vector/pop-music-text-art-colorful-600w-515538502.jpg'),
+      ),
+    ),
+    Audio.base64(
+      base64Example,
+      fileExtension: 'mp3',
+      mimeType: 'audio/mpeg',
+      metas: Metas(
+        id: 'Base64',
+        title: 'Shirt (Base64)',
+        artist: 'Hammer of Hathor',
+        album: 'CountryAlbum',
+        image: MetasImage.network('https://freemusicarchive.org/image/?file=images%2Falbums%2FHammer_of_Hathor_-_Ineluctable_Modality_of_the_Visible_-_20120209190423408.JPG&width=290&height=290&type=album'),
       ),
     ),
     Audio(
@@ -143,6 +157,21 @@ class _MyAppState extends State<MyApp> {
   }
 
   void openPlayer() async {
+    audios.add(
+      MyAudioStream(
+        'assets/audios/pop.mp3',
+        mimeType: 'audio/mpeg',
+        fileExtension: 'mp3',
+        metas: Metas(
+          id: 'Custom',
+          title: 'Custom Stream',
+          artist: 'My Artist',
+          album: 'My Album',
+          image: MetasImage.network(
+              'https://game-icons.net/icons/000000/ffffff/1x1/lorc/splashy-stream.png'),
+        ),
+      ),
+    );
     await _assetsAudioPlayer.open(
       Playlist(audios: audios, startIndex: 0),
       showNotification: true,

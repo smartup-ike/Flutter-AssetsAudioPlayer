@@ -3,6 +3,8 @@ package com.github.florent37.assets_audio_player.playerimplem
 import android.content.Context
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.github.florent37.assets_audio_player.AssetAudioPlayerThrowable
 import com.github.florent37.assets_audio_player.AssetsAudioPlayerPlugin
@@ -22,11 +24,17 @@ import com.google.android.exoplayer2.source.smoothstreaming.SsMediaSource
 import com.google.android.exoplayer2.upstream.*
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import java.io.File
+import java.io.IOException
+import java.lang.Thread.sleep
+import java.util.concurrent.TimeoutException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
+import kotlin.math.min
 
-class IncompatibleException(val audioType: String, val type: PlayerImplemTesterExoPlayer.Type) : Throwable()
+
+class IncompatibleException(val audioType: String, val type: PlayerImplemTesterExoPlayer.Type) :
+    Throwable()
 
 class PlayerImplemTesterExoPlayer(private val type: Type) : PlayerImplemTester {
 
@@ -44,64 +52,79 @@ class PlayerImplemTesterExoPlayer(private val type: Type) : PlayerImplemTester {
             Log.d("PlayerImplem", "trying to open with exoplayer($type)")
         }
         //some type are only for web
-        if (configuration.audioType != Player.AUDIO_TYPE_LIVESTREAM && configuration.audioType != Player.AUDIO_TYPE_LIVESTREAM) {
+        if (configuration.audioType != Player.AUDIO_TYPE_LIVESTREAM && configuration.audioType != Player.AUDIO_TYPE_NETWORK) {
             if (type == Type.HLS || type == Type.DASH || type == Type.SmoothStreaming) {
                 throw IncompatibleException(configuration.audioType, type)
             }
         }
 
         val mediaPlayer = PlayerImplemExoPlayer(
-                onFinished = {
-                    configuration.onFinished?.invoke()
-                    //stop(pingListener = false)
-                },
-                onBuffering = {
-                    configuration.onBuffering?.invoke(it)
-                },
-                onSeeking = {
-                    configuration.onSeeking?.invoke(it)
-                },
-                onError = { t ->
-                    configuration.onError?.invoke(t)
-                },
-                type = this.type
+            onFinished = {
+                configuration.onFinished?.invoke()
+                //stop(pingListener = false)
+            },
+            onBuffering = {
+                configuration.onBuffering?.invoke(it)
+            },
+            onSeeking = {
+                configuration.onSeeking?.invoke(it)
+            },
+            onError = { t ->
+                configuration.onError?.invoke(t)
+            },
+            type = this.type,
+            onGetBytes = { start, end, current, onDone ->
+                configuration.onGetBytes?.invoke(
+                    start,
+                    end,
+                    current,
+                    onDone
+                )
+            },
+            onOpenClose = { name, type, onDone ->
+                configuration.onOpenClose?.invoke(name, type, onDone)
+            },
         )
 
         try {
             val durationMS = mediaPlayer.open(
-                    context = configuration.context,
-                    assetAudioPath = configuration.assetAudioPath,
-                    audioType = configuration.audioType,
-                    assetAudioPackage = configuration.assetAudioPackage,
-                    networkHeaders = configuration.networkHeaders,
-                    flutterAssets = configuration.flutterAssets,
-                    drmConfiguration = configuration.drmConfiguration
+                context = configuration.context,
+                assetAudioPath = configuration.assetAudioPath,
+                audioType = configuration.audioType,
+                assetAudioPackage = configuration.assetAudioPackage,
+                networkHeaders = configuration.networkHeaders,
+                flutterAssets = configuration.flutterAssets,
+                drmConfiguration = configuration.drmConfiguration
             )
             return PlayerFinder.PlayerWithDuration(
-                    player = mediaPlayer,
-                    duration = durationMS
+                player = mediaPlayer,
+                duration = durationMS
             )
         } catch (t: Throwable) {
             if (AssetsAudioPlayerPlugin.displayLogs) {
                 Log.d("PlayerImplem", "failed to open with exoplayer($type)")
             }
             mediaPlayer.release()
-            throw  t
+            throw t
         }
     }
 }
 
 class PlayerImplemExoPlayer(
-        onFinished: (() -> Unit),
-        onBuffering: ((Boolean) -> Unit),
-        onSeeking: ((Boolean) -> Unit),
-        onError: ((AssetAudioPlayerThrowable) -> Unit),
-        val type: PlayerImplemTesterExoPlayer.Type
+    onFinished: (() -> Unit),
+    onBuffering: ((Boolean) -> Unit),
+    onSeeking: ((Boolean) -> Unit),
+    onError: ((AssetAudioPlayerThrowable) -> Unit),
+    val type: PlayerImplemTesterExoPlayer.Type,
+    onGetBytes: ((offset: Int, length: Int, currentItem: String, onDone: (data: ByteArray) -> Unit) -> Unit),
+    onOpenClose: ((currentItem: String, type: String, onDone: ((size: Long) -> Unit)?) -> Unit)
 ) : PlayerImplem(
-        onFinished = onFinished,
-        onBuffering = onBuffering,
-        onSeeking = onSeeking,
-        onError = onError
+    onFinished = onFinished,
+    onBuffering = onBuffering,
+    onSeeking = onSeeking,
+    onError = onError,
+    onGetBytes = onGetBytes,
+    onOpenClose = onOpenClose
 ) {
 
     private var mediaPlayer: ExoPlayer? = null
@@ -129,13 +152,14 @@ class PlayerImplemExoPlayer(
         mediaPlayer?.playWhenReady = false
     }
 
-    private fun getDataSource(context: Context,
-                              flutterAssets: FlutterPlugin.FlutterAssets,
-                              assetAudioPath: String?,
-                              audioType: String,
-                              networkHeaders: Map<*, *>?,
-                              assetAudioPackage: String?,
-                              drmConfiguration: Map<*, *>?
+    private fun getDataSource(
+        context: Context,
+        flutterAssets: FlutterPlugin.FlutterAssets,
+        assetAudioPath: String?,
+        audioType: String,
+        networkHeaders: Map<*, *>?,
+        assetAudioPackage: String?,
+        drmConfiguration: Map<*, *>?
     ): MediaSource {
         try {
             mediaPlayer?.stop()
@@ -147,7 +171,8 @@ class PlayerImplemExoPlayer(
 
                     val factory = DataSource.Factory {
                         val allowCrossProtocol = true
-                        val dataSource = DefaultHttpDataSource.Factory().setUserAgent(userAgent).setAllowCrossProtocolRedirects(allowCrossProtocol).createDataSource()
+                        val dataSource = DefaultHttpDataSource.Factory().setUserAgent(userAgent)
+                            .setAllowCrossProtocolRedirects(allowCrossProtocol).createDataSource()
                         networkHeaders?.forEach {
                             it.key?.let { key ->
                                 it.value?.let { value ->
@@ -176,14 +201,32 @@ class PlayerImplemExoPlayer(
                         val key = drmConfiguration?.get("clearKey")?.toString()
 
                         if (key != null) {
-                            val mediaItemDrmConfiguration: MediaItem.DrmConfiguration = MediaItem.DrmConfiguration.Builder(C.CLEARKEY_UUID).setKeySetId(key.toByteArray()).build()
-                            mediaItem = mediaItem.buildUpon().setDrmConfiguration(mediaItemDrmConfiguration).build()
+                            val mediaItemDrmConfiguration: MediaItem.DrmConfiguration =
+                                MediaItem.DrmConfiguration.Builder(C.CLEARKEY_UUID)
+                                    .setKeySetId(key.toByteArray()).build()
+                            mediaItem =
+                                mediaItem.buildUpon().setDrmConfiguration(mediaItemDrmConfiguration)
+                                    .build()
                             factory.setDrmSessionManagerProvider(DefaultDrmSessionManagerProvider())
                         }
 
                     }
 
                     return factory.createMediaSource(mediaItem)
+                }
+                Player.AUDIO_TYPE_CUSTOM -> {
+                    if (networkHeaders != null) {
+                        return ProgressiveMediaSource.Factory {
+                            CustomDataSource(onGetBytes, onOpenClose, assetAudioPath!!)
+                        }.createMediaSource(
+                            MediaItem.Builder()
+                                .setUri(Uri.parse(assetAudioPath))
+                                .setMimeType(networkHeaders["mimeType"].toString())
+                                .build()
+                        )
+                    } else {
+                        throw Exception("Item data found")
+                    }
                 }
                 else -> { //asset$
                     val p = assetAudioPath!!.replace(" ", "%20")
@@ -212,14 +255,16 @@ class PlayerImplemExoPlayer(
             val loadControlBuilder = DefaultLoadControl.Builder()
 
 /*How many milliseconds of media data to buffer at any time. */
-            val loadControlBufferMs = DefaultLoadControl.DEFAULT_MAX_BUFFER_MS /* This is 50000 milliseconds in ExoPlayer 2.9.6 */
+            val loadControlBufferMs =
+                DefaultLoadControl.DEFAULT_MAX_BUFFER_MS /* This is 50000 milliseconds in ExoPlayer 2.9.6 */
 
 /* Configure the DefaultLoadControl to use the same value for */
             loadControlBuilder.setBufferDurationsMs(
-                    loadControlBufferMs,
-                    loadControlBufferMs,
-                    DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
-                    DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS)
+                loadControlBufferMs,
+                loadControlBufferMs,
+                DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
+            )
 
             return this.setLoadControl(loadControlBuilder.build())
         }
@@ -229,9 +274,10 @@ class PlayerImplemExoPlayer(
     fun mapError(t: Throwable): AssetAudioPlayerThrowable {
         return when {
             t is ExoPlaybackException -> {
-                (t.cause as? HttpDataSource.InvalidResponseCodeException)?.takeIf { it.responseCode >= 400 }?.let {
-                    AssetAudioPlayerThrowable.UnreachableException(t)
-                } ?: let {
+                (t.cause as? HttpDataSource.InvalidResponseCodeException)?.takeIf { it.responseCode >= 400 }
+                    ?.let {
+                        AssetAudioPlayerThrowable.UnreachableException(t)
+                    } ?: let {
                     AssetAudioPlayerThrowable.NetworkError(t)
                 }
             }
@@ -245,29 +291,29 @@ class PlayerImplemExoPlayer(
     }
 
     override suspend fun open(
-            context: Context,
-            flutterAssets: FlutterPlugin.FlutterAssets,
-            assetAudioPath: String?,
-            audioType: String,
-            networkHeaders: Map<*, *>?,
-            assetAudioPackage: String?,
-            drmConfiguration: Map<*, *>?
+        context: Context,
+        flutterAssets: FlutterPlugin.FlutterAssets,
+        assetAudioPath: String?,
+        audioType: String,
+        networkHeaders: Map<*, *>?,
+        assetAudioPackage: String?,
+        drmConfiguration: Map<*, *>?
     ) = suspendCoroutine<DurationMS> { continuation ->
         var onThisMediaReady = false
 
         try {
             mediaPlayer = ExoPlayer.Builder(context)
-                    .incrementBufferSize(audioType)
-                    .build()
+                .incrementBufferSize(audioType)
+                .build()
 
             val mediaSource = getDataSource(
-                    context = context,
-                    flutterAssets = flutterAssets,
-                    assetAudioPath = assetAudioPath,
-                    audioType = audioType,
-                    networkHeaders = networkHeaders,
-                    assetAudioPackage = assetAudioPackage,
-                    drmConfiguration = drmConfiguration
+                context = context,
+                flutterAssets = flutterAssets,
+                assetAudioPath = assetAudioPath,
+                audioType = audioType,
+                networkHeaders = networkHeaders,
+                assetAudioPackage = assetAudioPackage,
+                drmConfiguration = drmConfiguration
             )
 
             var lastState: Int? = null
@@ -372,5 +418,111 @@ class PlayerImplemExoPlayer(
             mediaPlayer?.addListener(listener)
         }
         //return
+    }
+}
+
+class CustomDataSource(
+    private var getBytes: ((offset: Int, length: Int, currentItem: String, onDone: (data: ByteArray) -> Unit) -> Unit),
+    private var onOpenClose: ((currentItem: String, type: String, onDone: ((size: Long) -> Unit)?) -> Unit),
+    private var name: String,
+    timeout: Int = 7000
+) : BaseDataSource(/* isNetwork = */false) {
+    private var uri: Uri? = null
+    private var readPosition = 0
+    private var bytesRemaining = 0
+    private var opened = false
+    private val timeout: Int
+    private var attempts: Int = 0
+    private var size: Long = 0
+
+    init {
+        this.timeout = timeout
+    }
+
+    @Throws(IOException::class)
+    override fun open(dataSpec: DataSpec): Long {
+        if (!opened) {
+            try {
+                Handler(Looper.getMainLooper()).post {
+                    onOpenClose(name, "open", fun(size) {
+                        this.size = size
+                    })
+                }
+                // Handler needs to be awaited before return
+                while (size <= 0) {
+                    if (attempts > timeout) throw TimeoutException()
+                    attempts++
+                    sleep(1)
+                }
+                attempts = 0
+
+            } catch (e: InterruptedException) {
+                //ignore
+            }
+        }
+        uri = dataSpec.uri
+        transferInitializing(dataSpec)
+        if (dataSpec.position > size) {
+            throw DataSourceException(PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE)
+        }
+        readPosition = dataSpec.position.toInt()
+        bytesRemaining = size.toInt() - dataSpec.position.toInt()
+        if (dataSpec.length != C.LENGTH_UNSET.toLong()) {
+            bytesRemaining = min(bytesRemaining.toLong(), dataSpec.length).toInt()
+        }
+        opened = true
+        transferStarted(dataSpec)
+        return if (dataSpec.length != C.LENGTH_UNSET.toLong()) dataSpec.length else bytesRemaining.toLong()
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        var dataLength = length
+        if (dataLength == 0) {
+            return 0
+        } else if (bytesRemaining == 0) {
+            return C.RESULT_END_OF_INPUT
+        }
+        try {
+            var done = false
+            Handler(Looper.getMainLooper()).post {
+                dataLength = min(dataLength, bytesRemaining)
+                getBytes(readPosition, dataLength, name, fun(bytes) {
+                    if (opened) {
+                        System.arraycopy(bytes, 0, buffer, offset, dataLength)
+                        bytesTransferred(bytes.size)
+                        readPosition += dataLength
+                        bytesRemaining -= dataLength
+                    }
+                    done = true
+                })
+            }
+            // Handler needs to be awaited before return
+            while (!done) {
+                if (attempts > timeout) throw TimeoutException()
+                attempts++
+                sleep(1)
+            }
+            attempts = 0
+
+        } catch (e: InterruptedException) {
+            //ignore
+        }
+
+        return dataLength
+    }
+
+    override fun getUri(): Uri? {
+        return uri
+    }
+
+    override fun close() {
+        Handler(Looper.getMainLooper()).post {
+            onOpenClose(name, "close", null)
+        }
+        if (opened) {
+            opened = false
+            transferEnded()
+        }
+        uri = null
     }
 }

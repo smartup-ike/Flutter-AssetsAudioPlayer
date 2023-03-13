@@ -3,13 +3,11 @@ package com.github.florent37.assets_audio_player
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import android.os.SystemClock
 import android.util.Log
-import android.view.KeyEvent
+import android.widget.Toast
 import androidx.annotation.NonNull
 import com.github.florent37.assets_audio_player.headset.HeadsetStrategy
 import com.github.florent37.assets_audio_player.notification.*
-import com.github.florent37.assets_audio_player.playerimplem.PlayerFinder
 import com.github.florent37.assets_audio_player.stopwhencall.AudioFocusStrategy
 import com.github.florent37.assets_audio_player.stopwhencall.HeadsetManager
 import com.github.florent37.assets_audio_player.stopwhencall.StopWhenCall
@@ -29,6 +27,8 @@ internal val METHOD_FORWARD_REWIND_SPEED = "player.forwardRewind"
 internal val METHOD_PLAY_SPEED = "player.playSpeed"
 internal val METHOD_PITCH = "player.pitch"
 internal val METHOD_FINISHED = "player.finished"
+internal val METHOD_GET_BYTES = "player.getBytes"
+internal val METHOD_CLOSE = "player.openCloseStream"
 internal val METHOD_IS_PLAYING = "player.isPlaying"
 internal val METHOD_IS_BUFFERING = "player.isBuffering"
 internal val METHOD_IS_SEEKING = "player.isSeeking"
@@ -221,7 +221,48 @@ class AssetsAudioPlayer(
                 onFinished = {
                     channel.invokeMethod(METHOD_FINISHED, null)
                 }
-
+                onGetBytes = { offset: Int, length: Int, current: String, onDone: (data: ByteArray) -> Unit ->
+                        channel.invokeMethod(METHOD_GET_BYTES, mapOf("offset" to offset, "length" to length, "current" to current), object : MethodChannel.Result {
+                            override fun success(result: Any?) {
+                                if (result != null)
+                                onDone(result as ByteArray)
+                                else onDone(ByteArray(0))
+                            }
+                            override fun error(
+                                errorCode: String,
+                                errorMessage: String?,
+                                errorDetails: Any?
+                            ) {
+                                throw AssetAudioPlayerThrowable.PlayerError(Throwable(errorMessage))
+                            }
+                            override fun notImplemented() {
+                                throw NotImplementedError()
+                            }
+                        })
+                }
+                onOpenClose = { name, type, onDone ->
+                    channel.invokeMethod(METHOD_CLOSE, mapOf("current" to name, "type" to type),  object : MethodChannel.Result {
+                        override fun success(result: Any?) {
+                            if (result != null)
+                                if (onDone != null) {
+                                    onDone(result.toString().toLong())
+                                }
+                            else if (onDone != null) {
+                                onDone(0)
+                            }
+                        }
+                        override fun error(
+                            errorCode: String,
+                            errorMessage: String?,
+                            errorDetails: Any?
+                        ) {
+                            throw AssetAudioPlayerThrowable.PlayerError(Throwable(errorMessage))
+                        }
+                        override fun notImplemented() {
+                            throw NotImplementedError()
+                        }
+                    })
+                }
                 onPrev = {
                     channel.invokeMethod(METHOD_PREV, null)
                 }

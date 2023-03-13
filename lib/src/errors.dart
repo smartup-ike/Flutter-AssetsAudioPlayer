@@ -1,7 +1,7 @@
 import 'assets_audio_player.dart';
 import 'player_group.dart';
 
-enum AssetsAudioPlayerErrorType { Network, Player }
+enum AssetsAudioPlayerErrorType { Network, Player, Custom }
 
 class ErrorHandler {
   final AssetsAudioPlayerError error;
@@ -27,6 +27,8 @@ AssetsAudioPlayerErrorType parseAssetsAudioPlayerErrorType(String type) {
   switch (type) {
     case 'network':
       return AssetsAudioPlayerErrorType.Network;
+    case 'custom':
+      return AssetsAudioPlayerErrorType.Custom;
     default:
       return AssetsAudioPlayerErrorType.Player;
   }
@@ -45,4 +47,10 @@ class AssetsAudioPlayerError {
   String toString() {
     return 'AssetsAudioPlayerError{errorType: $errorType, message: $message}';
   }
+}
+
+abstract class AssetsAudioPlayerCustomError extends AssetsAudioPlayerError
+    with Exception {
+  AssetsAudioPlayerCustomError({required String message})
+      : super(errorType: AssetsAudioPlayerErrorType.Custom, message: message);
 }

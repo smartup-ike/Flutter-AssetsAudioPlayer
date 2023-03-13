@@ -1,5 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
+import 'dart:io';
 
 import 'package:assets_audio_player/assets_audio_player.dart';
 import 'package:flutter/foundation.dart';
@@ -26,6 +27,8 @@ enum AudioType {
   liveStream,
   file,
   asset,
+  base64,
+  custom,
 }
 
 String audioTypeDescription(AudioType audioType) {
@@ -38,6 +41,10 @@ String audioTypeDescription(AudioType audioType) {
       return 'file';
     case AudioType.asset:
       return 'asset';
+    case AudioType.base64:
+      return 'base64';
+    case AudioType.custom:
+      return 'custom';
   }
 }
 
@@ -158,50 +165,50 @@ class Metas {
 }
 
 //Placeholder for future DRM Types
-enum DrmType{ token, widevine, fairplay, clearKey }
+enum DrmType { token, widevine, fairplay, clearKey }
 
-class DrmConfiguration{
-   final DrmType drmType;
-   final String? clearKey;
+class DrmConfiguration {
+  final DrmType drmType;
+  final String? clearKey;
 
-   DrmConfiguration._(this.drmType,{this.clearKey});
+  DrmConfiguration._(this.drmType, {this.clearKey});
 
-   factory DrmConfiguration.clearKey({String? clearKey, Map<String,String>? keys}){
-     if(keys!=null) clearKey  = _generate(keys);
-     var drmConfiguration = DrmConfiguration._(DrmType.clearKey,clearKey: clearKey);
-     return drmConfiguration;
-   }
+  factory DrmConfiguration.clearKey(
+      {String? clearKey, Map<String, String>? keys}) {
+    if (keys != null) clearKey = _generate(keys);
+    var drmConfiguration =
+        DrmConfiguration._(DrmType.clearKey, clearKey: clearKey);
+    return drmConfiguration;
+  }
 
+  static String _generate(Map<String, String> keys,
+      {String type = 'temporary'}) {
+    Map keyMap = <String, dynamic>{'type': type};
+    keyMap['keys'] = <Map<String, String>>[];
+    keys.forEach((key, value) => keyMap['keys']
+        .add({'kty': 'oct', 'kid': _base64(key), 'k': _base64(value)}));
+    return jsonEncode(keyMap);
+  }
 
-    static String _generate(Map<String, String> keys,
-       {String type = 'temporary'}) {
-     Map keyMap = <String, dynamic>{'type': type};
-     keyMap['keys'] = <Map<String, String>>[];
-     keys.forEach((key, value) => keyMap['keys']
-         .add({'kty': 'oct', 'kid': _base64(key), 'k': _base64(value)}));
-     return jsonEncode(keyMap);
-   }
+  static String _base64(String source) {
+    return base64
+        .encode(_encodeBigInt(BigInt.parse(source, radix: 16)))
+        .replaceAll('=', '');
+  }
 
-   static String _base64(String source) {
-     return base64
-         .encode(_encodeBigInt(BigInt.parse(source, radix: 16)))
-         .replaceAll('=', '');
-   }
+  static final _byteMask = BigInt.from(0xff);
 
-    static final _byteMask = BigInt.from(0xff);
+  static Uint8List _encodeBigInt(BigInt number) {
+    var size = (number.bitLength + 7) >> 3;
 
-    static Uint8List _encodeBigInt(BigInt number) {
-     var size = (number.bitLength + 7) >> 3;
-
-     final result = Uint8List(size);
-     var pos = size - 1;
-     for (var i = 0; i < size; i++) {
-       result[pos--] = (number & _byteMask).toInt();
-       number = number >> 8;
-     }
-     return result;
-   }
-
+    final result = Uint8List(size);
+    var pos = size - 1;
+    for (var i = 0; i < size; i++) {
+      result[pos--] = (number & _byteMask).toInt();
+      number = number >> 8;
+    }
+    return result;
+  }
 }
 
 class Audio extends Playable {
@@ -219,17 +226,17 @@ class Audio extends Playable {
 
   Map<String, String>? get networkHeaders => _networkHeaders;
 
-  Audio._({
-    required this.path,
-    required this.audioType,
-    this.package,
-    this.cached,
-    this.playSpeed,
-    this.pitch,
-    Map<String, String>? headers,
-    Metas? metas,
-    this.drmConfiguration
-  })  : _metas = metas ?? Metas(),
+  Audio._(
+      {required this.path,
+      required this.audioType,
+      this.package,
+      this.cached,
+      this.playSpeed,
+      this.pitch,
+      Map<String, String>? headers,
+      Metas? metas,
+      this.drmConfiguration})
+      : _metas = metas ?? Metas(),
         _networkHeaders = headers;
 
   Audio(
@@ -256,29 +263,48 @@ class Audio extends Playable {
         cached = false,
         _metas = metas ?? Metas();
 
-  Audio.network(
-    this.path, {
-    Metas? metas,
-    Map<String, String>? headers,
-    this.cached = false,
-    this.playSpeed,
-    this.pitch,
-    this.drmConfiguration
-  })  : audioType = AudioType.network,
+  Audio.network(this.path,
+      {Metas? metas,
+      Map<String, String>? headers,
+      this.cached = false,
+      this.playSpeed,
+      this.pitch,
+      this.drmConfiguration})
+      : audioType = AudioType.network,
         package = null,
         _networkHeaders = headers,
         _metas = metas ?? Metas();
 
-  Audio.liveStream(
-    this.path, {
+  Audio.liveStream(this.path,
+      {Metas? metas,
+      this.playSpeed,
+      this.pitch,
+      Map<String, String>? headers,
+      this.drmConfiguration})
+      : audioType = AudioType.liveStream,
+        package = null,
+        _networkHeaders = headers,
+        cached = false,
+        _metas = metas ?? Metas();
+
+  Audio.base64(
+    String base64String, {
     Metas? metas,
     this.playSpeed,
     this.pitch,
-    Map<String, String>? headers,
-    this.drmConfiguration
-  })  : audioType = AudioType.liveStream,
+    this.drmConfiguration,
+    required String fileExtension,
+    required String mimeType,
+  })  : audioType = Platform.isAndroid ? AudioType.file : AudioType.base64,
+        path = Platform.isIOS
+            ? 'audio_assets_player://base64.$fileExtension'
+            : 'data:$mimeType;base64,$base64String',
         package = null,
-        _networkHeaders = headers,
+        _networkHeaders = {
+          'extension': fileExtension,
+          'mimeType': mimeType,
+          if (Platform.isIOS) 'base64': base64String
+        },
         cached = false,
         _metas = metas ?? Metas();
 
@@ -327,27 +353,50 @@ class Audio extends Playable {
     });
   }
 
-  Audio copyWith({
-    String? path,
-    String? package,
-    AudioType? audioType,
-    Metas? metas,
-    double? playSpeed,
-    Map<String, String>? headers,
-    bool? cached,
-    DrmConfiguration? drmConfiguration
-  }) {
+  Audio copyWith(
+      {String? path,
+      String? package,
+      AudioType? audioType,
+      Metas? metas,
+      double? playSpeed,
+      Map<String, String>? headers,
+      bool? cached,
+      DrmConfiguration? drmConfiguration}) {
     return Audio._(
-      path: path ?? this.path,
-      package: package ?? this.package,
-      audioType: audioType ?? this.audioType,
-      metas: metas ?? _metas,
-      headers: headers ?? _networkHeaders,
-      playSpeed: playSpeed ?? this.playSpeed,
-      cached: cached ?? this.cached,
-      drmConfiguration: drmConfiguration??this.drmConfiguration
-    );
+        path: path ?? this.path,
+        package: package ?? this.package,
+        audioType: audioType ?? this.audioType,
+        metas: metas ?? _metas,
+        headers: headers ?? _networkHeaders,
+        playSpeed: playSpeed ?? this.playSpeed,
+        cached: cached ?? this.cached,
+        drmConfiguration: drmConfiguration ?? this.drmConfiguration);
   }
+}
+
+abstract class AudioStream extends Audio {
+  AudioStream(String name,
+      {super.playSpeed,
+      super.pitch,
+      Metas? metas,
+      super.drmConfiguration,
+      required String mimeType,
+      required String fileExtension})
+      : super._(
+            path: 'assets_audio_player://$name.$fileExtension',
+            audioType: AudioType.custom,
+            cached: false,
+            headers: {
+              'mimeType': mimeType,
+              'extension': fileExtension,
+              'name': name
+            },
+            metas: metas ?? Metas());
+
+  /// Return the item size
+  Future<int> get fileSize;
+  Future<List<int>> request([int? offset, int? length]);
+  FutureOr<void> close();
 }
 
 typedef PlaylistAudioReplacer = Audio Function(Audio oldAudio);
