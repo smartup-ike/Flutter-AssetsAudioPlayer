@@ -11,7 +11,7 @@
             <intent-filter>
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
-        </reveiver>
+        </receiver>
         <receiver
             android:name=".notification.CustomMediaButtonReceiver"
             android:exported="true">
