@@ -44,10 +44,14 @@ class NotificationService : Service() {
         const val manifestIconNext = "assets.audio.player.notification.icon.next"
         const val manifestIconStop = "assets.audio.player.notification.icon.stop"
 
-        private var stateCompat : PlaybackStateCompat? = null
+        private var stateCompat: PlaybackStateCompat? = null
 
-        fun timeDiffer(old: PlaybackStateCompat?, new: PlaybackStateCompat, minDifferenceMS: Long) : Boolean {
-            if(old == null){
+        fun timeDiffer(
+            old: PlaybackStateCompat?,
+            new: PlaybackStateCompat,
+            minDifferenceMS: Long
+        ): Boolean {
+            if (old == null) {
                 return true
             }
 
@@ -55,22 +59,28 @@ class NotificationService : Service() {
             return abs(new.position - currentPos) > minDifferenceMS
         }
 
-        fun updatePosition(context: Context, isPlaying: Boolean, currentPositionMs: Long, speed: Float) {
+        fun updatePosition(
+            context: Context,
+            isPlaying: Boolean,
+            currentPositionMs: Long,
+            speed: Float
+        ) {
             MediaButtonsReceiver.getMediaSessionCompat(context).let { mediaSession ->
-                val state = if (isPlaying) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
+                val state =
+                    if (isPlaying) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
                 val newState = PlaybackStateCompat.Builder()
-                        .setActions(ACTION_SEEK_TO)
-                        .setState(state, currentPositionMs, if (isPlaying) speed else 0f)
-                        .build()
+                    .setActions(ACTION_SEEK_TO)
+                    .setState(state, currentPositionMs, if (isPlaying) speed else 0f)
+                    .build()
 
-                if(
-                        //pause -> play, play-> pause
-                        stateCompat?.state != newState.state ||
-                        //speed changed
-                        stateCompat?.playbackSpeed != speed ||
-                        //seek
-                        timeDiffer(stateCompat, newState, 2000)
-                ){
+                if (
+                //pause -> play, play-> pause
+                    stateCompat?.state != newState.state ||
+                    //speed changed
+                    stateCompat?.playbackSpeed != speed ||
+                    //seek
+                    timeDiffer(stateCompat, newState, 2000)
+                ) {
                     stateCompat = newState
                     mediaSession.setPlaybackState(stateCompat)
                 }
@@ -79,32 +89,41 @@ class NotificationService : Service() {
         }
 
 
-        private fun MediaMetadataCompat.Builder.putStringIfNotNull(key: String, value: String?) : MediaMetadataCompat.Builder {
-            return if(value != null)
+        private fun MediaMetadataCompat.Builder.putStringIfNotNull(
+            key: String,
+            value: String?
+        ): MediaMetadataCompat.Builder {
+            return if (value != null)
                 this.putString(key, value)
             else
                 this
         }
 
-        fun updateNotifMetaData(context: Context, display: Boolean,
-                                durationMs: Long,
-                                title: String? = null,
-                                artist: String? = null,
-                                album: String? = null
+        fun updateNotifMetaData(
+            context: Context, display: Boolean,
+            durationMs: Long,
+            title: String? = null,
+            artist: String? = null,
+            album: String? = null,
+            bitmap: Bitmap?
         ) {
             val mediaSession = MediaButtonsReceiver.getMediaSessionCompat(context)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 val builder = MediaMetadataCompat.Builder()
-                        //for samsung devices https://github.com/florent37/Flutter-AssetsAudioPlayer/issues/205
-                        .putStringIfNotNull(MediaMetadata.METADATA_KEY_TITLE, title)
-                        .putStringIfNotNull(MediaMetadata.METADATA_KEY_ARTIST, artist)
-                        .putStringIfNotNull(MediaMetadata.METADATA_KEY_ALBUM, album)
+                    //for samsung devices https://github.com/florent37/Flutter-AssetsAudioPlayer/issues/205
+                    .putStringIfNotNull(MediaMetadata.METADATA_KEY_TITLE, title)
+                    .putStringIfNotNull(MediaMetadata.METADATA_KEY_ARTIST, artist)
+                    .putStringIfNotNull(MediaMetadata.METADATA_KEY_ALBUM, album)
 
                 if (!display || durationMs == 0L /* livestream */) {
                     builder.putLong(MediaMetadata.METADATA_KEY_DURATION, C.TIME_UNSET)
                 } else {
                     builder.putLong(MediaMetadata.METADATA_KEY_DURATION, durationMs)
+                }
+
+                if (bitmap != null) {
+                    builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, bitmap)
                 }
 
                 mediaSession.setMetadata(builder.build())
@@ -122,6 +141,7 @@ class NotificationService : Service() {
             is NotificationAction.Show -> {
                 displayNotification(notificationAction)
             }
+
             is NotificationAction.Hide -> {
                 hideNotif()
             }
@@ -129,28 +149,39 @@ class NotificationService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun createReturnIntent(forAction: String, forPlayer: String, audioMetas: AudioMetas): Intent {
+    private fun createReturnIntent(
+        forAction: String,
+        forPlayer: String,
+        audioMetas: AudioMetas
+    ): Intent {
         return Intent(this, NotificationActionReceiver::class.java)
-                .setAction(forAction)
-                .putExtra(EXTRA_PLAYER_ID, forPlayer)
-                .putExtra(TRACK_ID, audioMetas.trackID)
+            .setAction(forAction)
+            .putExtra(EXTRA_PLAYER_ID, forPlayer)
+            .putExtra(TRACK_ID, audioMetas.trackID)
     }
 
     private fun displayNotification(action: NotificationAction.Show) {
         GlobalScope.launch(Dispatchers.Main) {
-            val image = ImageDownloader.loadBitmap(context = applicationContext, imageMetas = action.audioMetas.image)
-            if(image != null){
+            val image = ImageDownloader.loadBitmap(
+                context = applicationContext,
+                imageMetas = action.audioMetas.image
+            )
+            if (image != null) {
                 displayNotification(action, image) //display without image for now
                 return@launch
             }
-            val imageOnLoadError = ImageDownloader.loadBitmap(context = applicationContext, imageMetas = action.audioMetas.imageOnLoadError)
-            if(imageOnLoadError != null){
+            val imageOnLoadError = ImageDownloader.loadBitmap(
+                context = applicationContext,
+                imageMetas = action.audioMetas.imageOnLoadError
+            )
+            if (imageOnLoadError != null) {
                 displayNotification(action, imageOnLoadError) //display without image for now
                 return@launch
             }
 
-            val imageFromManifest = ImageDownloader.loadHolderBitmapFromManifest(context = applicationContext)
-            if(imageFromManifest != null){
+            val imageFromManifest =
+                ImageDownloader.loadHolderBitmapFromManifest(context = applicationContext)
+            if (imageFromManifest != null) {
                 displayNotification(action, imageFromManifest) //display without image for now
                 return@launch
             }
@@ -160,30 +191,65 @@ class NotificationService : Service() {
     }
 
     private fun getSmallIcon(context: Context): Int {
-        return getCustomIconOrDefault(context, manifestIcon, null, R.drawable.exo_icon_circular_play)
+        return getCustomIconOrDefault(
+            context,
+            manifestIcon,
+            null,
+            R.drawable.exo_icon_circular_play
+        )
     }
 
     private fun getPlayIcon(context: Context, resourceName: String?): Int {
-        return getCustomIconOrDefault(context, manifestIconPlay, resourceName, R.drawable.exo_icon_play)
+        return getCustomIconOrDefault(
+            context,
+            manifestIconPlay,
+            resourceName,
+            R.drawable.exo_icon_play
+        )
     }
 
     private fun getPauseIcon(context: Context, resourceName: String?): Int {
-        return getCustomIconOrDefault(context, manifestIconPause, resourceName, R.drawable.exo_icon_pause)
+        return getCustomIconOrDefault(
+            context,
+            manifestIconPause,
+            resourceName,
+            R.drawable.exo_icon_pause
+        )
     }
 
     private fun getNextIcon(context: Context, resourceName: String?): Int {
-        return getCustomIconOrDefault(context, manifestIconNext, resourceName, R.drawable.exo_icon_next)
+        return getCustomIconOrDefault(
+            context,
+            manifestIconNext,
+            resourceName,
+            R.drawable.exo_icon_next
+        )
     }
 
     private fun getPrevIcon(context: Context, resourceName: String?): Int {
-        return getCustomIconOrDefault(context, manifestIconPrev, resourceName, R.drawable.exo_icon_previous)
+        return getCustomIconOrDefault(
+            context,
+            manifestIconPrev,
+            resourceName,
+            R.drawable.exo_icon_previous
+        )
     }
 
     private fun getStopIcon(context: Context, resourceName: String?): Int {
-        return getCustomIconOrDefault(context, manifestIconStop, resourceName, R.drawable.exo_icon_stop)
+        return getCustomIconOrDefault(
+            context,
+            manifestIconStop,
+            resourceName,
+            R.drawable.exo_icon_stop
+        )
     }
 
-    private fun getCustomIconOrDefault(context: Context, manifestName: String, resourceName: String?, defaultIcon: Int): Int {
+    private fun getCustomIconOrDefault(
+        context: Context,
+        manifestName: String,
+        resourceName: String?,
+        defaultIcon: Int
+    ): Int {
         try {
             // by resource name
             val customIconFromName = getResourceID(resourceName)
@@ -192,7 +258,10 @@ class NotificationService : Service() {
             }
 
             //by manifest
-            val appInfos = context.packageManager.getApplicationInfo(context.packageName, PackageManager.GET_META_DATA)
+            val appInfos = context.packageManager.getApplicationInfo(
+                context.packageName,
+                PackageManager.GET_META_DATA
+            )
             val customIconFromManifest = appInfos.metaData.get(manifestName) as? Int
             if (customIconFromManifest != null) {
                 return customIconFromManifest
@@ -218,96 +287,143 @@ class NotificationService : Service() {
         val notificationSettings = action.notificationSettings
 
         updateNotifMetaData(
-                context = applicationContext,
-                display = notificationSettings.seekBarEnabled,
-                title = action.audioMetas.title,
-                artist = action.audioMetas.artist,
-                album = action.audioMetas.album,
-                durationMs = action.durationMs
+            context = applicationContext,
+            display = notificationSettings.seekBarEnabled,
+            title = action.audioMetas.title,
+            artist = action.audioMetas.artist,
+            album = action.audioMetas.album,
+            durationMs = action.durationMs,
+            bitmap = bitmap
         )
 
-        val toggleIntent = createReturnIntent(forAction = NotificationAction.ACTION_TOGGLE, forPlayer = action.playerId, audioMetas = action.audioMetas)
-                .putExtra(EXTRA_NOTIFICATION_ACTION, action.copyWith(
-                        isPlaying = !action.isPlaying
-                ))
-        val pendingToggleIntent = PendingIntent.getBroadcast(this, 0, toggleIntent, FLAG_IMMUTABLE or FLAG_UPDATE_CURRENT)
+        val toggleIntent = createReturnIntent(
+            forAction = NotificationAction.ACTION_TOGGLE,
+            forPlayer = action.playerId,
+            audioMetas = action.audioMetas
+        )
+            .putExtra(
+                EXTRA_NOTIFICATION_ACTION, action.copyWith(
+                    isPlaying = !action.isPlaying
+                )
+            )
+        val pendingToggleIntent =
+            PendingIntent.getBroadcast(this, 0, toggleIntent, FLAG_IMMUTABLE or FLAG_UPDATE_CURRENT)
         MediaButtonReceiver.handleIntent(mediaSession, toggleIntent)
 
         val context = this
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-                //prev
-                .apply {
-                    if (notificationSettings.prevEnabled) {
-                        addAction(getPrevIcon(context, action.notificationSettings.previousIcon), "prev",
-                                PendingIntent.getBroadcast(context, 0, createReturnIntent(forAction = NotificationAction.ACTION_PREV, forPlayer = action.playerId, audioMetas = action.audioMetas), FLAG_IMMUTABLE or FLAG_UPDATE_CURRENT)
+            //prev
+            .apply {
+                if (notificationSettings.prevEnabled) {
+                    addAction(
+                        getPrevIcon(context, action.notificationSettings.previousIcon), "prev",
+                        PendingIntent.getBroadcast(
+                            context,
+                            0,
+                            createReturnIntent(
+                                forAction = NotificationAction.ACTION_PREV,
+                                forPlayer = action.playerId,
+                                audioMetas = action.audioMetas
+                            ),
+                            FLAG_IMMUTABLE or FLAG_UPDATE_CURRENT
                         )
+                    )
+                }
+            }
+            //play/pause
+            .apply {
+                if (notificationSettings.playPauseEnabled) {
+                    addAction(
+                        if (action.isPlaying) getPauseIcon(
+                            context,
+                            action.notificationSettings.pauseIcon
+                        ) else getPlayIcon(context, action.notificationSettings.playIcon),
+                        if (action.isPlaying) "pause" else "play",
+                        pendingToggleIntent
+                    )
+                }
+            }
+            //next
+            .apply {
+                if (notificationSettings.nextEnabled) {
+                    addAction(
+                        getNextIcon(context, action.notificationSettings.nextIcon),
+                        "next",
+                        PendingIntent.getBroadcast(
+                            context, 0,
+                            createReturnIntent(
+                                forAction = NotificationAction.ACTION_NEXT,
+                                forPlayer = action.playerId,
+                                audioMetas = action.audioMetas
+                            ), FLAG_IMMUTABLE or FLAG_UPDATE_CURRENT
+                        )
+                    )
+                }
+            }
+            //stop
+            .apply {
+                if (notificationSettings.stopEnabled) {
+                    addAction(
+                        getStopIcon(context, action.notificationSettings.stopIcon),
+                        "stop",
+                        PendingIntent.getBroadcast(
+                            context, 0,
+                            createReturnIntent(
+                                forAction = NotificationAction.ACTION_STOP,
+                                forPlayer = action.playerId,
+                                audioMetas = action.audioMetas
+                            ), FLAG_IMMUTABLE or FLAG_UPDATE_CURRENT
+                        )
+                    )
+                }
+            }
+            .setStyle(androidx.media.app.NotificationCompat.MediaStyle()
+                .also {
+                    when (notificationSettings.numberEnabled()) {
+                        1 -> it.setShowActionsInCompactView(0)
+                        2 -> it.setShowActionsInCompactView(0, 1)
+                        3 -> it.setShowActionsInCompactView(0, 1, 2)
+                        4 -> it.setShowActionsInCompactView(0, 1, 2, 3)
+                        else -> it.setShowActionsInCompactView()
                     }
                 }
-                //play/pause
-                .apply {
-                    if (notificationSettings.playPauseEnabled) {
-                        addAction(
-                                if (action.isPlaying) getPauseIcon(context, action.notificationSettings.pauseIcon) else getPlayIcon(context, action.notificationSettings.playIcon),
-                                if (action.isPlaying) "pause" else "play",
-                                pendingToggleIntent
-                        )
-                    }
+                .setShowCancelButton(true)
+                .setMediaSession(mediaSession.sessionToken)
+            )
+            .setSmallIcon(getSmallIcon(context))
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setContentTitle(action.audioMetas.title)
+            .setContentText(action.audioMetas.artist)
+            .setOnlyAlertOnce(true)
+            .also {
+                if (!action.audioMetas.album.isNullOrEmpty()) {
+                    it.setSubText(action.audioMetas.album)
                 }
-                //next
-                .apply {
-                    if (notificationSettings.nextEnabled) {
-                        addAction(getNextIcon(context, action.notificationSettings.nextIcon), "next", PendingIntent.getBroadcast(context, 0,
-                                createReturnIntent(forAction = NotificationAction.ACTION_NEXT, forPlayer = action.playerId, audioMetas = action.audioMetas), FLAG_IMMUTABLE or FLAG_UPDATE_CURRENT)
-                        )
-                    }
-                }
-                //stop
-                .apply {
-                    if (notificationSettings.stopEnabled) {
-                        addAction(getStopIcon(context, action.notificationSettings.stopIcon), "stop", PendingIntent.getBroadcast(context, 0,
-                                createReturnIntent(forAction = NotificationAction.ACTION_STOP, forPlayer = action.playerId, audioMetas = action.audioMetas), FLAG_IMMUTABLE or FLAG_UPDATE_CURRENT)
-                        )
-                    }
-                }
-                .setStyle(androidx.media.app.NotificationCompat.MediaStyle()
-                        .also {
-                            when (notificationSettings.numberEnabled()) {
-                                1 -> it.setShowActionsInCompactView(0)
-                                2 -> it.setShowActionsInCompactView(0, 1)
-                                3 -> it.setShowActionsInCompactView(0, 1, 2)
-                                4 -> it.setShowActionsInCompactView(0, 1, 2, 3)
-                                else -> it.setShowActionsInCompactView()
-                            }
-                        }
-                        .setShowCancelButton(true)
-                        .setMediaSession(mediaSession.sessionToken)
+            }
+            .setContentIntent(
+                PendingIntent.getBroadcast(
+                    this, 0,
+                    createReturnIntent(
+                        forAction = NotificationAction.ACTION_SELECT,
+                        forPlayer = action.playerId,
+                        audioMetas = action.audioMetas
+                    ), FLAG_IMMUTABLE or PendingIntent.FLAG_CANCEL_CURRENT
                 )
-                .setSmallIcon(getSmallIcon(context))
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setContentTitle(action.audioMetas.title)
-                .setContentText(action.audioMetas.artist)
-                .setOnlyAlertOnce(true)
-                .also {
-                    if (!action.audioMetas.album.isNullOrEmpty()) {
-                        it.setSubText(action.audioMetas.album)
-                    }
+            )
+            .also {
+                if (bitmap != null) {
+                    it.setLargeIcon(bitmap)
                 }
-                .setContentIntent(PendingIntent.getBroadcast(this, 0,
-                        createReturnIntent(forAction = NotificationAction.ACTION_SELECT, forPlayer = action.playerId, audioMetas = action.audioMetas), FLAG_IMMUTABLE or PendingIntent.FLAG_CANCEL_CURRENT))
-                .also {
-                    if (bitmap != null) {
-                        it.setLargeIcon(bitmap)
-                    }
-                }
-                .setShowWhen(false)
-                .build()
+            }
+            .setShowWhen(false)
+            .build()
         startForeground(NOTIFICATION_ID, notification)
 
         //fix for https://github.com/florent37/Flutter-AssetsAudioPlayer/issues/139
         if (!action.isPlaying && Build.VERSION.SDK_INT >= 24) {
-           stopForeground(2)
+            stopForeground(2)
         }
 
     }
@@ -315,9 +431,9 @@ class NotificationService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val serviceChannel = NotificationChannel(
-                    CHANNEL_ID,
-                    "Foreground Service Channel",
-                    android.app.NotificationManager.IMPORTANCE_LOW
+                CHANNEL_ID,
+                "Foreground Service Channel",
+                android.app.NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "assets_audio_player"
                 setShowBadge(false)
@@ -325,7 +441,7 @@ class NotificationService : Service() {
             }
 
             NotificationManagerCompat.from(applicationContext).createNotificationChannel(
-                    serviceChannel
+                serviceChannel
             )
         }
     }
